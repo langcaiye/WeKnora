@@ -13,8 +13,14 @@ import (
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/google/uuid"
 	"github.com/tencent/vectordatabase-sdk-go/tcvdbtext/encoder"
 	"github.com/tencent/vectordatabase-sdk-go/tcvectordb"
+)
+
+const (
+	copyIndicesChunkQueryBatchSize = 500
+	copyIndicesMaxEntriesPerChunk  = 11
 )
 
 // NewTencentVectorDBRetrieveEngineRepository creates a Tencent VectorDB-backed retrieve repository.
@@ -138,34 +144,27 @@ func (r *repository) CopyIndices(
 	}
 	collectionName := r.collectionName(dimension)
 	ids := slices.Collect(maps.Keys(sourceToTargetChunkIDMap))
-	query, err := r.client.Database(r.databaseName).Collection(collectionName).Query(
-		ctx,
-		nil,
-		&tcvectordb.QueryDocumentParams{
-			Filter:         tcvectordb.NewFilter(tcvectordb.In(fieldChunkID, ids)),
-			RetrieveVector: true,
-			OutputFields:   outputFields(),
-			Limit:          int64(len(ids)),
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("tencent vectordb query source indices: %w", err)
-	}
 
-	embeddings := make([]*vectorEmbedding, 0, len(query.Documents))
-	for _, doc := range query.Documents {
-		embedding := fromDocument(doc)
-		targetChunkID := sourceToTargetChunkIDMap[embedding.ChunkID]
-		if targetChunkID == "" {
-			continue
+	embeddings := make([]*vectorEmbedding, 0, len(ids))
+	for chunkIDs := range slices.Chunk(ids, copyIndicesChunkQueryBatchSize) {
+		query, err := r.client.Database(r.databaseName).Collection(collectionName).Query(
+			ctx,
+			nil,
+			copySourceQueryParams(
+				sourceKnowledgeBaseID,
+				chunkIDs,
+				int64(len(chunkIDs)*copyIndicesMaxEntriesPerChunk),
+			),
+		)
+		if err != nil {
+			return fmt.Errorf("tencent vectordb query source indices: %w", err)
 		}
-		embedding.ID = targetChunkID
-		embedding.ChunkID = targetChunkID
-		embedding.KnowledgeBaseID = targetKnowledgeBaseID
-		if targetKBID := sourceToTargetKBIDMap[embedding.KnowledgeID]; targetKBID != "" {
-			embedding.KnowledgeID = targetKBID
-		}
-		embeddings = append(embeddings, embedding)
+		embeddings = append(embeddings, remapCopiedEmbeddings(
+			query.Documents,
+			sourceToTargetKBIDMap,
+			sourceToTargetChunkIDMap,
+			targetKnowledgeBaseID,
+		)...)
 	}
 	if len(embeddings) == 0 {
 		return nil
@@ -535,7 +534,7 @@ func (r *repository) toDocumentsWithSparseVectors(
 
 func toVectorEmbedding(indexInfo *types.IndexInfo, params map[string]any) *vectorEmbedding {
 	embedding := &vectorEmbedding{
-		ID:              indexInfo.ChunkID,
+		ID:              indexInfo.ID,
 		Content:         cleanInvalidUTF8(indexInfo.Content),
 		SourceID:        indexInfo.SourceID,
 		SourceType:      int(indexInfo.SourceType),
@@ -547,6 +546,9 @@ func toVectorEmbedding(indexInfo *types.IndexInfo, params map[string]any) *vecto
 	}
 	if embedding.ID == "" {
 		embedding.ID = indexInfo.SourceID
+	}
+	if embedding.ID == "" {
+		embedding.ID = indexInfo.ChunkID
 	}
 	if params != nil && slices.Contains(slices.Collect(maps.Keys(params)), fieldVector) {
 		if embeddingMap, ok := params[fieldVector].(map[string][]float32); ok {
@@ -566,6 +568,61 @@ func lookupEmbedding(embeddingMap map[string][]float32, indexInfo *types.IndexIn
 		return embedding
 	}
 	return embeddingMap[indexInfo.ChunkID]
+}
+
+func copySourceQueryParams(sourceKnowledgeBaseID string, chunkIDs []string, limit int64) *tcvectordb.QueryDocumentParams {
+	conditions := []string{tcvectordb.In(fieldChunkID, chunkIDs)}
+	if sourceKnowledgeBaseID != "" {
+		conditions = append([]string{tcvectordb.In(fieldKnowledgeBaseID, []string{sourceKnowledgeBaseID})}, conditions...)
+	}
+	return &tcvectordb.QueryDocumentParams{
+		Filter:         tcvectordb.NewFilter(strings.Join(conditions, " and ")),
+		RetrieveVector: true,
+		OutputFields:   outputFields(),
+		Limit:          limit,
+	}
+}
+
+func remapCopiedEmbeddings(
+	docs []tcvectordb.Document,
+	sourceToTargetKBIDMap map[string]string,
+	sourceToTargetChunkIDMap map[string]string,
+	targetKnowledgeBaseID string,
+) []*vectorEmbedding {
+	embeddings := make([]*vectorEmbedding, 0, len(docs))
+	for _, doc := range docs {
+		embedding := fromDocument(doc)
+		targetChunkID := sourceToTargetChunkIDMap[embedding.ChunkID]
+		if targetChunkID == "" {
+			continue
+		}
+		originalSourceID := embedding.SourceID
+		if originalSourceID == "" {
+			originalSourceID = embedding.ID
+		}
+		targetSourceID := translateSourceID(originalSourceID, embedding.ChunkID, targetChunkID)
+		embedding.ID = targetSourceID
+		embedding.SourceID = targetSourceID
+		embedding.ChunkID = targetChunkID
+		embedding.KnowledgeBaseID = targetKnowledgeBaseID
+		if targetKBID := sourceToTargetKBIDMap[embedding.KnowledgeID]; targetKBID != "" {
+			embedding.KnowledgeID = targetKBID
+		}
+		embeddings = append(embeddings, embedding)
+	}
+	return embeddings
+}
+
+func translateSourceID(originalSourceID, sourceChunkID, targetChunkID string) string {
+	switch {
+	case originalSourceID == sourceChunkID:
+		return targetChunkID
+	case strings.HasPrefix(originalSourceID, sourceChunkID+"-"):
+		questionID := strings.TrimPrefix(originalSourceID, sourceChunkID+"-")
+		return fmt.Sprintf("%s-%s", targetChunkID, questionID)
+	default:
+		return uuid.New().String()
+	}
 }
 
 func cleanInvalidUTF8(s string) string {
