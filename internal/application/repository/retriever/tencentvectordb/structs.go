@@ -53,5 +53,6 @@ type vectorEmbedding struct {
 	Embedding       []float32
 	SparseVector    []encoder.SparseVecItem
 	IsEnabled       bool
+	ScalarMetadata  map[string]string
 	Score           float64
 }

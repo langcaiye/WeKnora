@@ -412,6 +412,7 @@ func (p *PluginSearch) searchByTargets(
 						QueryText:             queryText,
 						QueryEmbedding:        queryEmbedding,
 						KnowledgeBaseIDs:      fullKBIDs,
+						MetadataFilters:       chatManage.MetadataFilters,
 						VectorThreshold:       chatManage.VectorThreshold,
 						KeywordThreshold:      chatManage.KeywordThreshold,
 						MatchCount:            chatManage.EmbeddingTopK,
@@ -469,7 +470,7 @@ func (p *PluginSearch) searchSingleTarget(
 ) {
 	searchKnowledgeIDs := t.KnowledgeIDs
 
-	if t.Type == types.SearchTargetTypeKnowledge {
+	if t.Type == types.SearchTargetTypeKnowledge && chatManage.MetadataFilters.Empty() {
 		directResults, skippedIDs := p.tryDirectChunkLoading(ctx, chatManage.TenantID, t.KnowledgeIDs)
 
 		if len(directResults) > 0 {
@@ -499,6 +500,7 @@ func (p *PluginSearch) searchSingleTarget(
 	params := types.SearchParams{
 		QueryText:             queryText,
 		QueryEmbedding:        queryEmbedding,
+		MetadataFilters:       chatManage.MetadataFilters,
 		VectorThreshold:       chatManage.VectorThreshold,
 		KeywordThreshold:      chatManage.KeywordThreshold,
 		MatchCount:            chatManage.EmbeddingTopK,

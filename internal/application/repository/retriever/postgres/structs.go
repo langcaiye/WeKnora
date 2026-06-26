@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
 	"strconv"
@@ -26,6 +27,7 @@ type pgVector struct {
 	Dimension       int                 `json:"dimension"         gorm:"column:dimension;not null"`
 	Embedding       pgvector.HalfVector `json:"embedding"         gorm:"column:embedding;not null"`
 	IsEnabled       bool                `json:"is_enabled"        gorm:"column:is_enabled;default:true;index"`
+	ScalarMetadata  types.JSON          `json:"metadata"          gorm:"column:metadata;type:jsonb"`
 }
 
 // pgVectorWithScore extends pgVector with similarity score field
@@ -43,6 +45,7 @@ type pgVectorWithScore struct {
 	Dimension       int                 `json:"dimension"         gorm:"column:dimension;not null"`
 	Embedding       pgvector.HalfVector `json:"embedding"         gorm:"column:embedding;not null"`
 	IsEnabled       bool                `json:"is_enabled"        gorm:"column:is_enabled;default:true;index"`
+	ScalarMetadata  types.JSON          `json:"metadata"          gorm:"column:metadata;type:jsonb"`
 	Score           float64             `json:"score"             gorm:"column:score"`
 }
 
@@ -67,6 +70,7 @@ func toDBVectorEmbedding(indexInfo *types.IndexInfo, additionalParams map[string
 		TagID:           indexInfo.TagID,
 		Content:         common.CleanInvalidUTF8(indexInfo.Content),
 		IsEnabled:       indexInfo.IsEnabled,
+		ScalarMetadata:  metadataToJSON(indexInfo.ScalarMetadata),
 	}
 	// Add embedding data if available in additionalParams
 	if additionalParams != nil && slices.Contains(slices.Collect(maps.Keys(additionalParams)), "embedding") {
@@ -84,6 +88,17 @@ func toDBVectorEmbedding(indexInfo *types.IndexInfo, additionalParams map[string
 		}
 	}
 	return pgVector
+}
+
+func metadataToJSON(metadata map[string]string) types.JSON {
+	if len(metadata) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return nil
+	}
+	return types.JSON(raw)
 }
 
 // fromDBVectorEmbeddingWithScore converts pgVectorWithScore to IndexWithScore domain model

@@ -41,6 +41,8 @@ type CreateKnowledgeQARequest struct {
 	Query            string                 `json:"query"              binding:"required"` // Query text for knowledge base search
 	KnowledgeBaseIDs []string               `json:"knowledge_base_ids"`                    // Selected knowledge base ID for this request
 	KnowledgeIds     []string               `json:"knowledge_ids"`                         // Selected knowledge ID for this request
+	MetadataFilters  types.MetadataFilters  `json:"metadata_filters,omitempty"`            // Chunk-level metadata filters for retrieval
+	Filters          types.MetadataFilters  `json:"filters,omitempty"`                     // Alias for metadata_filters
 	AgentEnabled     bool                   `json:"agent_enabled"`                         // Whether agent mode is enabled for this request
 	AgentID          string                 `json:"agent_id"`                              // Selected custom agent ID (backend resolves shared agent and its tenant from share relation)
 	WebSearchEnabled bool                   `json:"web_search_enabled"`                    // Whether web search is enabled for this request
@@ -73,10 +75,26 @@ type AttachmentUpload struct {
 
 // SearchKnowledgeRequest defines the request structure for searching knowledge without LLM summarization
 type SearchKnowledgeRequest struct {
-	Query            string   `json:"query"              binding:"required"` // Query text to search for
-	KnowledgeBaseID  string   `json:"knowledge_base_id"`                     // Single knowledge base ID (for backward compatibility)
-	KnowledgeBaseIDs []string `json:"knowledge_base_ids"`                    // IDs of knowledge bases to search (multi-KB support)
-	KnowledgeIDs     []string `json:"knowledge_ids"`                         // IDs of specific knowledge (files) to search
+	Query            string                `json:"query"              binding:"required"` // Query text to search for
+	KnowledgeBaseID  string                `json:"knowledge_base_id"`                     // Single knowledge base ID (for backward compatibility)
+	KnowledgeBaseIDs []string              `json:"knowledge_base_ids"`                    // IDs of knowledge bases to search (multi-KB support)
+	KnowledgeIDs     []string              `json:"knowledge_ids"`                         // IDs of specific knowledge (files) to search
+	MetadataFilters  types.MetadataFilters `json:"metadata_filters,omitempty"`            // Chunk-level metadata filters for retrieval
+	Filters          types.MetadataFilters `json:"filters,omitempty"`                     // Alias for metadata_filters
+}
+
+func (r CreateKnowledgeQARequest) effectiveMetadataFilters() types.MetadataFilters {
+	if !r.MetadataFilters.Empty() {
+		return r.MetadataFilters
+	}
+	return r.Filters
+}
+
+func (r SearchKnowledgeRequest) effectiveMetadataFilters() types.MetadataFilters {
+	if !r.MetadataFilters.Empty() {
+		return r.MetadataFilters
+	}
+	return r.Filters
 }
 
 // StopSessionRequest represents the stop session request

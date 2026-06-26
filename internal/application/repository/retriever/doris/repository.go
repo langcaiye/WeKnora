@@ -3,6 +3,7 @@ package doris
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -42,15 +43,15 @@ func NewDorisRetrieveEngineRepository(
 	}
 
 	repo := &dorisRepository{
-		db:             db,
-		httpClient:     &http.Client{},
-		feHTTPBase:     strings.TrimRight(feHTTPBase, "/"),
-		username:       username,
-		password:       password,
-		database:       database,
-		tableBaseName:  tableBaseName,
-		bucketsNum:     indexCfg.GetBucketsNum(0),
-		replicationNum: indexCfg.GetReplicationNum(0),
+		db:                  db,
+		httpClient:          &http.Client{},
+		feHTTPBase:          strings.TrimRight(feHTTPBase, "/"),
+		username:            username,
+		password:            password,
+		database:            database,
+		tableBaseName:       tableBaseName,
+		bucketsNum:          indexCfg.GetBucketsNum(0),
+		replicationNum:      indexCfg.GetReplicationNum(0),
 		compatModeRequested: compatMode,
 	}
 	log.Infof("[Doris] Repository initialized: db=%s, base=%s, fe_http=%s, compat_mode=%s",
@@ -152,17 +153,17 @@ func (r *dorisRepository) insertRows(ctx context.Context,
 		return nil
 	}
 
-	// 9 个普通占位符 + 1 个 embedding 字面量。
-	const perRowPlaceholders = "(?, ?, ?, ?, ?, ?, ?, ?, ?, %s)"
+	// 10 个普通占位符 + 1 个 embedding 字面量。
+	const perRowPlaceholders = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, %s)"
 
 	parts := make([]string, len(rows))
-	args := make([]any, 0, len(rows)*9)
+	args := make([]any, 0, len(rows)*10)
 	for i, e := range rows {
 		parts[i] = fmt.Sprintf(perRowPlaceholders, embeddingLiteral(e.Embedding))
 		args = append(args,
 			e.ID, e.Content, e.SourceID, e.SourceType,
 			e.ChunkID, e.KnowledgeID, e.KnowledgeBaseID, e.TagID,
-			e.IsEnabled,
+			e.IsEnabled, e.ScalarMetadata,
 		)
 	}
 
@@ -532,6 +533,7 @@ func toDorisVectorEmbedding(
 		KnowledgeBaseID: info.KnowledgeBaseID,
 		TagID:           info.TagID,
 		IsEnabled:       info.IsEnabled,
+		ScalarMetadata:  dorisMetadataJSON(info.ScalarMetadata),
 	}
 	if additionalParams != nil {
 		if v, ok := additionalParams[fieldEmbedding]; ok {
@@ -544,6 +546,17 @@ func toDorisVectorEmbedding(
 		}
 	}
 	return emb
+}
+
+func dorisMetadataJSON(metadata map[string]string) string {
+	if len(metadata) == 0 {
+		return "{}"
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
 }
 
 func (r *dorisRepository) wrapVectorRetrieveError(table string, compatMode dorisCompatMode, err error) error {
@@ -595,6 +608,7 @@ func scanRetrieveRows(rows *sql.Rows, matchType types.MatchType) ([]*types.Index
 		var (
 			id, content, sourceID, chunkID      string
 			knowledgeID, knowledgeBaseID, tagID string
+			metadata                            string
 			sourceType                          int
 			isEnabled                           bool
 			score                               float64
@@ -602,10 +616,10 @@ func scanRetrieveRows(rows *sql.Rows, matchType types.MatchType) ([]*types.Index
 		)
 		if withScore {
 			err = rows.Scan(&id, &content, &sourceID, &sourceType,
-				&chunkID, &knowledgeID, &knowledgeBaseID, &tagID, &isEnabled, &score)
+				&chunkID, &knowledgeID, &knowledgeBaseID, &tagID, &isEnabled, &metadata, &score)
 		} else {
 			err = rows.Scan(&id, &content, &sourceID, &sourceType,
-				&chunkID, &knowledgeID, &knowledgeBaseID, &tagID, &isEnabled)
+				&chunkID, &knowledgeID, &knowledgeBaseID, &tagID, &isEnabled, &metadata)
 			score = 1.0
 		}
 		if err != nil {
@@ -637,12 +651,13 @@ func scanCopyRows(rows *sql.Rows) ([]*DorisVectorEmbedding, error) {
 		var (
 			id, content, sourceID, chunkID      string
 			knowledgeID, knowledgeBaseID, tagID string
+			metadata                            string
 			sourceType                          int
 			isEnabled                           bool
 			embeddingRaw                        sql.RawBytes
 		)
 		if err := rows.Scan(&id, &content, &sourceID, &sourceType,
-			&chunkID, &knowledgeID, &knowledgeBaseID, &tagID, &isEnabled, &embeddingRaw); err != nil {
+			&chunkID, &knowledgeID, &knowledgeBaseID, &tagID, &isEnabled, &metadata, &embeddingRaw); err != nil {
 			return nil, fmt.Errorf("scan copy row: %w", err)
 		}
 		vec, err := parseEmbeddingLiteral(embeddingRaw)
@@ -659,6 +674,7 @@ func scanCopyRows(rows *sql.Rows) ([]*DorisVectorEmbedding, error) {
 			KnowledgeBaseID: knowledgeBaseID,
 			TagID:           tagID,
 			IsEnabled:       isEnabled,
+			ScalarMetadata:  metadata,
 			Embedding:       vec,
 		})
 	}

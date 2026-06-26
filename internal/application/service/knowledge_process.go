@@ -164,6 +164,32 @@ type ProcessChunksOptions struct {
 	Metadata     map[string]string
 }
 
+func scalarMetadataJSONFromMap(metadata map[string]string) types.JSON {
+	if len(metadata) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(types.DocumentChunkMetadata{ScalarMetadata: metadata})
+	if err != nil {
+		return nil
+	}
+	return types.JSON(raw)
+}
+
+func scalarMetadataMapFromJSON(raw types.JSON) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var docMeta types.DocumentChunkMetadata
+	if err := json.Unmarshal(raw, &docMeta); err == nil && len(docMeta.ScalarMetadata) > 0 {
+		return types.MergeScalarMetadata(docMeta.ScalarMetadata, nil)
+	}
+	var faqMeta types.FAQChunkMetadata
+	if err := json.Unmarshal(raw, &faqMeta); err == nil && len(faqMeta.ScalarMetadata) > 0 {
+		return types.MergeScalarMetadata(faqMeta.ScalarMetadata, nil)
+	}
+	return nil
+}
+
 // finalizeIndexedKnowledgeState makes a document retrievable as soon as chunks
 // and indexes are persisted (enable_status=enabled), but it deliberately does
 // NOT mark the row completed when enrichment is still expected. Whenever the
@@ -395,6 +421,7 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 				StartAt:         pc.Start,
 				EndAt:           pc.End,
 				ChunkType:       types.ChunkTypeParentText,
+				Metadata:        scalarMetadataJSONFromMap(types.MergeScalarMetadata(options.Metadata, nil)),
 			}
 		}
 		// Set prev/next links for parent chunks
@@ -435,6 +462,7 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 			StartAt:         int(chunkData.Start),
 			EndAt:           int(chunkData.End),
 			ChunkType:       types.ChunkTypeText,
+			Metadata:        scalarMetadataJSONFromMap(types.MergeScalarMetadata(options.Metadata, chunkData.Metadata)),
 		}
 
 		// Wire up ParentChunkID for child chunks
@@ -540,6 +568,7 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 				KnowledgeID:     knowledge.ID,
 				KnowledgeBaseID: knowledge.KnowledgeBaseID,
 				IsEnabled:       true,
+				ScalarMetadata:  scalarMetadataMapFromJSON(chunk.Metadata),
 			})
 		}
 
@@ -1170,6 +1199,7 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 			KnowledgeID:     knowledge.ID,
 			KnowledgeBaseID: knowledge.KnowledgeBaseID,
 			IsEnabled:       true,
+			ScalarMetadata:  scalarMetadataMapFromJSON(summaryChunk.Metadata),
 		}}
 
 		if err := retrieveEngine.BatchIndex(ctx, embeddingModel, indexInfo); err != nil {
@@ -1517,6 +1547,7 @@ func (s *knowledgeService) processQuestionGenerationForKnowledge(ctx context.Con
 		}
 		meta := &types.DocumentChunkMetadata{
 			GeneratedQuestions: generatedQuestions,
+			ScalarMetadata:     scalarMetadataMapFromJSON(chunk.Metadata),
 		}
 		if err := chunk.SetDocumentMetadata(meta); err != nil {
 			chunkMetadataSetFailed++
@@ -1542,6 +1573,7 @@ func (s *knowledgeService) processQuestionGenerationForKnowledge(ctx context.Con
 				KnowledgeID:     knowledge.ID,
 				KnowledgeBaseID: knowledge.KnowledgeBaseID,
 				IsEnabled:       true,
+				ScalarMetadata:  scalarMetadataMapFromJSON(chunk.Metadata),
 			})
 		}
 		logger.Debugf(ctx, "Generated %d questions for chunk %s", len(questions), chunk.ID)
@@ -1838,6 +1870,7 @@ func (s *knowledgeService) processQuestionGenerationForChunks(ctx context.Contex
 			}
 		}
 		meta := &types.DocumentChunkMetadata{GeneratedQuestions: generatedQuestions}
+		meta.ScalarMetadata = scalarMetadataMapFromJSON(chunk.Metadata)
 		if err := chunk.SetDocumentMetadata(meta); err != nil {
 			logger.Warnf(ctx, "Failed to set document metadata for chunk %s: %v", chunk.ID, err)
 			continue
@@ -1855,6 +1888,7 @@ func (s *knowledgeService) processQuestionGenerationForChunks(ctx context.Contex
 				KnowledgeID:     knowledge.ID,
 				KnowledgeBaseID: knowledge.KnowledgeBaseID,
 				IsEnabled:       true,
+				ScalarMetadata:  scalarMetadataMapFromJSON(chunk.Metadata),
 			})
 		}
 	}
@@ -2374,6 +2408,7 @@ func (s *knowledgeService) updateChunkVector(ctx context.Context, kbID string, c
 			KnowledgeID:     chunk.KnowledgeID,
 			KnowledgeBaseID: chunk.KnowledgeBaseID,
 			IsEnabled:       true,
+			ScalarMetadata:  scalarMetadataMapFromJSON(chunk.Metadata),
 		})
 		ids = append(ids, chunk.ID)
 	}

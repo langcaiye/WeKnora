@@ -11,13 +11,14 @@ type PipelineRequest struct {
 	MaxRounds    int    `json:"max_rounds"`
 
 	// Knowledge base retrieval parameters
-	KnowledgeBaseIDs []string      `json:"knowledge_base_ids"`
-	KnowledgeIDs     []string      `json:"knowledge_ids,omitempty"`
-	SearchTargets    SearchTargets `json:"-"`
-	VectorThreshold  float64       `json:"vector_threshold"`
-	KeywordThreshold float64       `json:"keyword_threshold"`
-	EmbeddingTopK    int           `json:"embedding_top_k"`
-	VectorDatabase   string        `json:"vector_database"`
+	KnowledgeBaseIDs []string        `json:"knowledge_base_ids"`
+	KnowledgeIDs     []string        `json:"knowledge_ids,omitempty"`
+	MetadataFilters  MetadataFilters `json:"metadata_filters,omitempty"`
+	SearchTargets    SearchTargets   `json:"-"`
+	VectorThreshold  float64         `json:"vector_threshold"`
+	KeywordThreshold float64         `json:"keyword_threshold"`
+	EmbeddingTopK    int             `json:"embedding_top_k"`
+	VectorDatabase   string          `json:"vector_database"`
 
 	// Rerank parameters
 	RerankModelID   string  `json:"rerank_model_id"`
@@ -192,6 +193,7 @@ func (c *ChatManage) Clone() *ChatManage {
 			MaxRounds:                c.MaxRounds,
 			KnowledgeBaseIDs:         knowledgeBaseIDs,
 			KnowledgeIDs:             knowledgeIDs,
+			MetadataFilters:          c.MetadataFilters,
 			SearchTargets:            searchTargets,
 			VectorThreshold:          c.VectorThreshold,
 			KeywordThreshold:         c.KeywordThreshold,

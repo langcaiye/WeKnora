@@ -16,15 +16,16 @@ type weaviateRepository struct {
 }
 
 type WeaviateVectorEmbedding struct {
-	Content         string    `json:"content"`
-	SourceID        string    `json:"source_id"`
-	SourceType      int       `json:"source_type"`
-	ChunkID         string    `json:"chunk_id"`
-	KnowledgeID     string    `json:"knowledge_id"`
-	KnowledgeBaseID string    `json:"knowledge_base_id"`
-	TagID           string    `json:"tag_id"`
-	Embedding       []float32 `json:"embedding"`
-	IsEnabled       bool      `json:"is_enabled"`
+	Content         string            `json:"content"`
+	SourceID        string            `json:"source_id"`
+	SourceType      int               `json:"source_type"`
+	ChunkID         string            `json:"chunk_id"`
+	KnowledgeID     string            `json:"knowledge_id"`
+	KnowledgeBaseID string            `json:"knowledge_base_id"`
+	TagID           string            `json:"tag_id"`
+	Embedding       []float32         `json:"embedding"`
+	IsEnabled       bool              `json:"is_enabled"`
+	ScalarMetadata  map[string]string `json:"metadata,omitempty"`
 }
 
 type WeaviateVectorEmbeddingWithScore struct {

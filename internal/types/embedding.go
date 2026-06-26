@@ -38,4 +38,5 @@ type IndexInfo struct {
 	TagID           string     // Tag ID for categorization (used for FAQ priority filtering)
 	IsEnabled       bool       // Whether the chunk is enabled for retrieval
 	IsRecommended   bool       // Whether the chunk is recommended
+	ScalarMetadata  map[string]string
 }

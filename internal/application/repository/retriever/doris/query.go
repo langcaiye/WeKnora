@@ -1,6 +1,7 @@
 package doris
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ const (
 	fieldKnowledgeBaseID = "knowledge_base_id"
 	fieldTagID           = "tag_id"
 	fieldIsEnabled       = "is_enabled"
+	fieldMetadata        = "metadata"
 	fieldEmbedding       = "embedding"
 )
 
@@ -27,7 +29,7 @@ const (
 var columns = []string{
 	fieldID, fieldContent, fieldSourceID, fieldSourceType,
 	fieldChunkID, fieldKnowledgeID, fieldKnowledgeBaseID, fieldTagID,
-	fieldIsEnabled, fieldEmbedding,
+	fieldIsEnabled, fieldMetadata, fieldEmbedding,
 }
 
 // columnsForRetrieve 是 Retrieve 时 SELECT 的列序，
@@ -35,7 +37,7 @@ var columns = []string{
 var columnsForRetrieve = []string{
 	fieldID, fieldContent, fieldSourceID, fieldSourceType,
 	fieldChunkID, fieldKnowledgeID, fieldKnowledgeBaseID, fieldTagID,
-	fieldIsEnabled,
+	fieldIsEnabled, fieldMetadata,
 }
 
 // columnsForCopy 是 CopyIndices 中分页 SELECT 时使用的列序，
@@ -43,7 +45,7 @@ var columnsForRetrieve = []string{
 var columnsForCopy = []string{
 	fieldID, fieldContent, fieldSourceID, fieldSourceType,
 	fieldChunkID, fieldKnowledgeID, fieldKnowledgeBaseID, fieldTagID,
-	fieldIsEnabled, fieldEmbedding,
+	fieldIsEnabled, fieldMetadata, fieldEmbedding,
 }
 
 // whereCond 表示一个 WHERE 子条件：clause 是参数化 SQL 片段（带 ? 占位），
@@ -140,7 +142,37 @@ func buildBaseFilter(params types.RetrieveParams) *whereBuilder {
 	if len(params.ExcludeChunkIDs) > 0 {
 		w.addNotIn(fieldChunkID, params.ExcludeChunkIDs)
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		w.addMetadataIn(filter, false)
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		w.addMetadataIn(filter, true)
+	}
 	return w
+}
+
+func (w *whereBuilder) addMetadataIn(filter types.MetadataFilter, negated bool) {
+	values := filter.MatchValues()
+	if len(values) == 0 {
+		return
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(values)), ",")
+	operator := "IN"
+	expr := fmt.Sprintf("JSON_UNQUOTE(JSON_EXTRACT(%s, ?)) %s (%s)", fieldMetadata, operator, placeholders)
+	if negated {
+		operator = "NOT IN"
+		expr = fmt.Sprintf(
+			"COALESCE(JSON_UNQUOTE(JSON_EXTRACT(%s, ?)), '') %s (%s)",
+			fieldMetadata,
+			operator,
+			placeholders,
+		)
+	}
+	args := []any{fmt.Sprintf("$.%s", filter.Field)}
+	for _, value := range values {
+		args = append(args, value)
+	}
+	w.conds = append(w.conds, whereCond{clause: expr, args: args})
 }
 
 // parseEmbeddingLiteral 解析 Doris ARRAY<FLOAT> 通过 MySQL 协议返回的

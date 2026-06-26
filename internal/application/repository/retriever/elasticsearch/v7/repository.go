@@ -523,6 +523,9 @@ func (e *elasticsearchRepository) getBaseConds(params typesLocal.RetrieveParams)
 			},
 		})
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		must = append(must, es7MetadataTermsQuery(filter))
+	}
 
 	// Build MUST_NOT conditions (negative filters)
 	mustNot := make([]map[string]interface{}, 0)
@@ -546,6 +549,9 @@ func (e *elasticsearchRepository) getBaseConds(params typesLocal.RetrieveParams)
 				e.idField("chunk_id"): params.ExcludeChunkIDs,
 			},
 		})
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		mustNot = append(mustNot, es7MetadataTermsQuery(filter))
 	}
 
 	// Combine conditions based on presence
@@ -579,6 +585,14 @@ func (e *elasticsearchRepository) getBaseConds(params typesLocal.RetrieveParams)
 		return "{}"
 	}
 	return string(jsonBytes)
+}
+
+func es7MetadataTermsQuery(filter typesLocal.MetadataFilter) map[string]interface{} {
+	return map[string]interface{}{
+		"terms": map[string]interface{}{
+			filter.FieldPath(): filter.MatchValues(),
+		},
+	}
 }
 
 func (e *elasticsearchRepository) Retrieve(ctx context.Context,

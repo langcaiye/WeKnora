@@ -88,6 +88,10 @@ func (s *knowledgeBaseService) HybridSearch(ctx context.Context,
 	id string,
 	params types.SearchParams,
 ) ([]*types.SearchResult, error) {
+	if err := params.MetadataFilters.Validate(); err != nil {
+		return nil, apperrors.NewBadRequestError(err.Error())
+	}
+
 	// Determine the set of KB IDs to search.
 	searchKBIDs := params.KnowledgeBaseIDs
 	if len(searchKBIDs) == 0 {
@@ -203,9 +207,9 @@ func (s *knowledgeBaseService) HybridSearch(ctx context.Context,
 			"group_count":            len(groups),
 		},
 		Metadata: map[string]interface{}{
-			"primary_kb_id":      kb.ID,
-			"primary_kb_type":    string(kb.Type),
-			"embedding_model_id": kb.EmbeddingModelID,
+			"primary_kb_id":       kb.ID,
+			"primary_kb_type":     string(kb.Type),
+			"embedding_model_id":  kb.EmbeddingModelID,
 			"has_query_embedding": len(params.QueryEmbedding) > 0,
 		},
 	})
@@ -368,6 +372,7 @@ func (s *knowledgeBaseService) buildRetrievalParams(
 				RetrieverType:    types.VectorRetrieverType,
 				KnowledgeIDs:     params.KnowledgeIDs,
 				TagIDs:           params.TagIDs,
+				MetadataFilters:  params.MetadataFilters,
 				KnowledgeType:    knowledgeType,
 			})
 		}
@@ -397,6 +402,7 @@ func (s *knowledgeBaseService) buildRetrievalParams(
 			RetrieverType:    types.KeywordsRetrieverType,
 			KnowledgeIDs:     params.KnowledgeIDs,
 			TagIDs:           params.TagIDs,
+			MetadataFilters:  params.MetadataFilters,
 		})
 		logger.Info(ctx, "Keyword retrieval parameters setup completed")
 	}

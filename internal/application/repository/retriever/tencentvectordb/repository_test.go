@@ -70,6 +70,39 @@ func TestBaseFilterBuildsTencentVectorDBCondition(t *testing.T) {
 	}
 }
 
+func TestBaseFilterIncludesMetadataFilters(t *testing.T) {
+	repo := &repository{}
+
+	filter := repo.baseFilter(types.RetrieveParams{
+		MetadataFilters: types.MetadataFilters{
+			Must: []types.MetadataFilter{{
+				Field: "goods_id",
+				Op:    types.MetadataFilterOpEq,
+				Value: "1001",
+			}},
+			MustNot: []types.MetadataFilter{{
+				Field:  "sku_id",
+				Op:     types.MetadataFilterOpNotIn,
+				Values: []string{"disabled"},
+			}},
+		},
+	})
+	cond := filter.Cond()
+
+	assert.Contains(t, cond, "metadata__goods_id in (\"1001\")")
+	assert.Contains(t, cond, "metadata__sku_id not in (\"disabled\")")
+}
+
+func TestToDocumentIncludesScalarMetadata(t *testing.T) {
+	doc := toDocument(&vectorEmbedding{
+		ID:             "chunk-1",
+		IsEnabled:      true,
+		ScalarMetadata: map[string]string{"goods_id": "1001"},
+	})
+
+	assert.Equal(t, "1001", doc.Fields["metadata__goods_id"].String())
+}
+
 func TestTencentVectorDBDefaultsToReplicaNumberOne(t *testing.T) {
 	repo := NewTencentVectorDBRetrieveEngineRepository(nil, "", nil).(*repository)
 

@@ -27,6 +27,7 @@ type retrieveFilters struct {
 	TagIDs              []string
 	ExcludeChunkIDs     []string
 	ExcludeKnowledgeIDs []string
+	MetadataFilters     types.MetadataFilters
 	IncludeDisabled     bool
 }
 
@@ -41,6 +42,7 @@ func fromParams(p types.RetrieveParams) *retrieveFilters {
 		TagIDs:              p.TagIDs,
 		ExcludeChunkIDs:     p.ExcludeChunkIDs,
 		ExcludeKnowledgeIDs: p.ExcludeKnowledgeIDs,
+		MetadataFilters:     p.MetadataFilters,
 		// IncludeDisabled stays false — set explicitly by admin callers
 		// only. Driver receives this from a typed field, not from
 		// AdditionalParams, so the contract is checked at compile time.
@@ -66,6 +68,20 @@ func (f *retrieveFilters) toBoolMust() []map[string]any {
 	if len(f.TagIDs) > 0 {
 		must = append(must, map[string]any{
 			"terms": map[string]any{"tag_id": f.TagIDs},
+		})
+	}
+	for _, filter := range f.MetadataFilters.IncludeFilters() {
+		must = append(must, map[string]any{
+			"terms": map[string]any{types.MetadataPayloadFieldName(filter.Field): filter.MatchValues()},
+		})
+	}
+	for _, filter := range f.MetadataFilters.ExcludeFilters() {
+		must = append(must, map[string]any{
+			"bool": map[string]any{
+				"must_not": map[string]any{
+					"terms": map[string]any{types.MetadataPayloadFieldName(filter.Field): filter.MatchValues()},
+				},
+			},
 		})
 	}
 	if len(f.ExcludeChunkIDs) > 0 {

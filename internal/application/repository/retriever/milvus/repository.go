@@ -2,6 +2,7 @@ package milvus
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -32,13 +33,14 @@ const (
 	fieldTagID            = "tag_id"
 	fieldEmbedding        = "embedding"
 	fieldIsEnabled        = "is_enabled"
+	fieldMetadata         = "metadata"
 	fieldID               = "id"
 	fieldContentSparse    = "content_sparse"
 )
 
 var (
 	allFields = []string{fieldID, fieldContent, fieldSourceID, fieldSourceType, fieldChunkID,
-		fieldKnowledgeID, fieldKnowledgeBaseID, fieldTagID, fieldIsEnabled, fieldEmbedding}
+		fieldKnowledgeID, fieldKnowledgeBaseID, fieldTagID, fieldIsEnabled, fieldMetadata, fieldEmbedding}
 )
 
 // NewMilvusRetrieveEngineRepository creates and initializes a new Milvus repository.
@@ -153,6 +155,9 @@ func (m *milvusRepository) ensureCollection(ctx context.Context, dimension int) 
 				entity.NewField().
 					WithName(fieldIsEnabled).
 					WithDataType(entity.FieldTypeBool),
+				entity.NewField().
+					WithName(fieldMetadata).
+					WithDataType(entity.FieldTypeJSON),
 			},
 		}
 
@@ -612,6 +617,20 @@ func (m *milvusRepository) getBaseFilterForQuery(params types.RetrieveParams) (s
 			Value:    params.ExcludeChunkIDs,
 		})
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		filters = append(filters, &universalFilterCondition{
+			Field:    milvusMetadataExpr(filter.Field),
+			Operator: operatorIn,
+			Value:    filter.MatchValues(),
+		})
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		filters = append(filters, &universalFilterCondition{
+			Field:    milvusMetadataExpr(filter.Field),
+			Operator: operatorNotIn,
+			Value:    filter.MatchValues(),
+		})
+	}
 	filters = append(filters, &universalFilterCondition{
 		Field:    fieldIsEnabled,
 		Operator: operatorEqual,
@@ -628,6 +647,10 @@ func (m *milvusRepository) getBaseFilterForQuery(params types.RetrieveParams) (s
 		return "", nil, err
 	}
 	return f.exprStr, f.params, nil
+}
+
+func milvusMetadataExpr(field string) string {
+	return fmt.Sprintf("%s['%s']", fieldMetadata, field)
 }
 
 // Retrieve dispatches the retrieval operation to the appropriate method based on retriever type
@@ -946,6 +969,7 @@ func toMilvusVectorEmbedding(embedding *types.IndexInfo, additionalParams map[st
 		KnowledgeBaseID: embedding.KnowledgeBaseID,
 		TagID:           embedding.TagID,
 		IsEnabled:       embedding.IsEnabled,
+		ScalarMetadata:  embedding.ScalarMetadata,
 	}
 	if additionalParams != nil && slices.Contains(slices.Collect(maps.Keys(additionalParams)), fieldEmbedding) {
 		if embeddingMap, ok := additionalParams[fieldEmbedding].(map[string][]float32); ok {
@@ -985,6 +1009,7 @@ func createUpsert(collectionName string, embeddings []*MilvusVectorEmbedding) cl
 	knowledgeBaseIDs := make([]string, 0, len(embeddings))
 	tagIDs := make([]string, 0, len(embeddings))
 	isEnableds := make([]bool, 0, len(embeddings))
+	metadataValues := make([][]byte, 0, len(embeddings))
 	var dimension int
 	for _, embedding := range embeddings {
 		ids = append(ids, embedding.ID)
@@ -997,6 +1022,7 @@ func createUpsert(collectionName string, embeddings []*MilvusVectorEmbedding) cl
 		knowledgeBaseIDs = append(knowledgeBaseIDs, embedding.KnowledgeBaseID)
 		tagIDs = append(tagIDs, embedding.TagID)
 		isEnableds = append(isEnableds, embedding.IsEnabled)
+		metadataValues = append(metadataValues, milvusMetadataJSON(embedding.ScalarMetadata))
 		dimension = len(embedding.Embedding)
 	}
 	opt := client.NewColumnBasedInsertOption(collectionName).
@@ -1009,8 +1035,20 @@ func createUpsert(collectionName string, embeddings []*MilvusVectorEmbedding) cl
 		WithVarcharColumn(fieldKnowledgeID, knowledgeIDs).
 		WithVarcharColumn(fieldKnowledgeBaseID, knowledgeBaseIDs).
 		WithVarcharColumn(fieldTagID, tagIDs).
-		WithBoolColumn(fieldIsEnabled, isEnableds)
+		WithBoolColumn(fieldIsEnabled, isEnableds).
+		WithColumns(column.NewColumnJSONBytes(fieldMetadata, metadataValues))
 	return opt
+}
+
+func milvusMetadataJSON(metadata map[string]string) []byte {
+	if len(metadata) == 0 {
+		return []byte("{}")
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return []byte("{}")
+	}
+	return raw
 }
 
 func convertResultSet(resultSet []client.ResultSet) ([]*MilvusVectorEmbeddingWithScore, []float64, error) {

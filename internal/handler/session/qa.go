@@ -31,6 +31,7 @@ type qaRequestContext struct {
 	assistantMessage  *types.Message
 	knowledgeBaseIDs  []string
 	knowledgeIDs      []string
+	metadataFilters   types.MetadataFilters
 	summaryModelID    string
 	webSearchEnabled  bool
 	enableMemory      bool // Whether memory feature is enabled
@@ -59,6 +60,7 @@ func (rc *qaRequestContext) buildQARequest() *types.QARequest {
 		CustomAgent:        rc.customAgent,
 		KnowledgeBaseIDs:   rc.knowledgeBaseIDs,
 		KnowledgeIDs:       rc.knowledgeIDs,
+		MetadataFilters:    rc.metadataFilters,
 		ImageURLs:          imageURLs,
 		ImageDescription:   imageDescription,
 		UserMessageID:      rc.userMessageID,
@@ -94,6 +96,11 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 	if request.Query == "" {
 		logger.Error(ctx, "Query content is empty")
 		return nil, nil, errors.NewBadRequestError("Query content cannot be empty")
+	}
+	metadataFilters := request.effectiveMetadataFilters()
+	if err := metadataFilters.Validate(); err != nil {
+		logger.Error(ctx, "Invalid metadata filters", err)
+		return nil, nil, errors.NewBadRequestError(err.Error())
 	}
 
 	// SSRF protection: strip client-supplied URL/Caption fields from image attachments.
@@ -259,6 +266,7 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		},
 		knowledgeBaseIDs:  secutils.SanitizeForLogArray(kbIDs),
 		knowledgeIDs:      secutils.SanitizeForLogArray(knowledgeIDs),
+		metadataFilters:   metadataFilters,
 		summaryModelID:    secutils.SanitizeForLog(request.SummaryModelID),
 		webSearchEnabled:  request.WebSearchEnabled,
 		enableMemory:      enableMemory,
@@ -482,6 +490,12 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 		c.Error(errors.NewBadRequestError("Query content cannot be empty"))
 		return
 	}
+	metadataFilters := request.effectiveMetadataFilters()
+	if err := metadataFilters.Validate(); err != nil {
+		logger.Error(ctx, "Invalid metadata filters", err)
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
 
 	// Merge single knowledge_base_id into knowledge_base_ids for backward compatibility
 	knowledgeBaseIDs := request.KnowledgeBaseIDs
@@ -514,7 +528,7 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 	)
 
 	// Directly call knowledge retrieval service without LLM summarization
-	searchResults, err := h.sessionService.SearchKnowledge(ctx, knowledgeBaseIDs, request.KnowledgeIDs, request.Query)
+	searchResults, err := h.sessionService.SearchKnowledge(ctx, knowledgeBaseIDs, request.KnowledgeIDs, request.Query, metadataFilters)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(errors.NewInternalServerError(err.Error()))

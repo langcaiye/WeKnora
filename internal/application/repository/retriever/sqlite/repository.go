@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ type sqliteEmbedding struct {
 	Content         string    `gorm:"column:content;not null"`
 	Dimension       int       `gorm:"column:dimension;not null"`
 	IsEnabled       *bool     `gorm:"column:is_enabled;default:true;index"`
+	ScalarMetadata  string    `gorm:"column:metadata;type:text"`
 }
 
 func (sqliteEmbedding) TableName() string { return "lite_embeddings" }
@@ -480,7 +482,19 @@ func toSQLiteEmbedding(info *types.IndexInfo) *sqliteEmbedding {
 		Content:         common.CleanInvalidUTF8(info.Content),
 		Dimension:       0,
 		IsEnabled:       &enabled,
+		ScalarMetadata:  sqliteMetadataJSON(info.ScalarMetadata),
 	}
+}
+
+func sqliteMetadataJSON(metadata map[string]string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func extractEmbedding(params map[string]any, sourceID string) []float32 {
@@ -570,7 +584,26 @@ func buildFilterWhere(params types.RetrieveParams) []whereClause {
 			args:   toInterfaceSlice(params.TagIDs),
 		})
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		parts = append(parts, sqliteMetadataWhere(filter, false))
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		parts = append(parts, sqliteMetadataWhere(filter, true))
+	}
 	return parts
+}
+
+func sqliteMetadataWhere(filter types.MetadataFilter, negated bool) whereClause {
+	values := filter.MatchValues()
+	operator := "IN"
+	expr := "json_extract(e.metadata, ?) " + operator + " (" + placeholders(len(values)) + ")"
+	if negated {
+		operator = "NOT IN"
+		expr = "COALESCE(json_extract(e.metadata, ?), '') " + operator + " (" + placeholders(len(values)) + ")"
+	}
+	args := []interface{}{fmt.Sprintf("$.%s", filter.Field)}
+	args = append(args, toInterfaceSlice(values)...)
+	return whereClause{clause: expr, args: args}
 }
 
 func placeholders(n int) string {

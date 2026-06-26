@@ -15,13 +15,14 @@ import (
 
 // FAQChunkMetadata 定义 FAQ 条目在 Chunk.Metadata 中的结构
 type FAQChunkMetadata struct {
-	StandardQuestion  string         `json:"standard_question"`
-	SimilarQuestions  []string       `json:"similar_questions,omitempty"`
-	NegativeQuestions []string       `json:"negative_questions,omitempty"`
-	Answers           []string       `json:"answers,omitempty"`
-	AnswerStrategy    AnswerStrategy `json:"answer_strategy,omitempty"`
-	Version           int            `json:"version,omitempty"`
-	Source            string         `json:"source,omitempty"`
+	StandardQuestion  string            `json:"standard_question"`
+	SimilarQuestions  []string          `json:"similar_questions,omitempty"`
+	NegativeQuestions []string          `json:"negative_questions,omitempty"`
+	Answers           []string          `json:"answers,omitempty"`
+	AnswerStrategy    AnswerStrategy    `json:"answer_strategy,omitempty"`
+	ScalarMetadata    map[string]string `json:"scalar_metadata,omitempty"`
+	Version           int               `json:"version,omitempty"`
+	Source            string            `json:"source,omitempty"`
 }
 
 // GeneratedQuestion 表示AI生成的单个问题
@@ -36,6 +37,7 @@ type DocumentChunkMetadata struct {
 	// GeneratedQuestions 存储AI为该Chunk生成的相关问题
 	// 这些问题会被独立索引以提高召回率
 	GeneratedQuestions []GeneratedQuestion `json:"generated_questions,omitempty"`
+	ScalarMetadata     map[string]string   `json:"scalar_metadata,omitempty"`
 }
 
 // GetQuestionStrings 返回问题内容字符串列表（兼容旧代码）

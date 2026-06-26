@@ -517,11 +517,17 @@ func (r *repository) baseFilter(params types.RetrieveParams) *tcvectordb.Filter 
 	if len(params.TagIDs) > 0 {
 		conditions = append(conditions, tcvectordb.In(fieldTagID, params.TagIDs))
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		conditions = append(conditions, tcvectordb.In(types.MetadataPayloadFieldName(filter.Field), filter.MatchValues()))
+	}
 	if len(params.ExcludeKnowledgeIDs) > 0 {
 		conditions = append(conditions, tcvectordb.NotIn(fieldKnowledgeID, params.ExcludeKnowledgeIDs))
 	}
 	if len(params.ExcludeChunkIDs) > 0 {
 		conditions = append(conditions, tcvectordb.NotIn(fieldChunkID, params.ExcludeChunkIDs))
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		conditions = append(conditions, tcvectordb.NotIn(types.MetadataPayloadFieldName(filter.Field), filter.MatchValues()))
 	}
 	return tcvectordb.NewFilter(strings.Join(conditions, " and "))
 }
@@ -582,6 +588,7 @@ func toVectorEmbedding(indexInfo *types.IndexInfo, params map[string]any) *vecto
 		KnowledgeBaseID: indexInfo.KnowledgeBaseID,
 		TagID:           indexInfo.TagID,
 		IsEnabled:       indexInfo.IsEnabled,
+		ScalarMetadata:  indexInfo.ScalarMetadata,
 	}
 	if embedding.ID == "" {
 		embedding.ID = indexInfo.SourceID
@@ -687,20 +694,24 @@ func cleanInvalidUTF8(s string) string {
 }
 
 func toDocument(embedding *vectorEmbedding) tcvectordb.Document {
+	fields := map[string]tcvectordb.Field{
+		fieldContent:         {Val: embedding.Content},
+		fieldSourceID:        {Val: embedding.SourceID},
+		fieldSourceType:      {Val: uint64(embedding.SourceType)},
+		fieldChunkID:         {Val: embedding.ChunkID},
+		fieldKnowledgeID:     {Val: embedding.KnowledgeID},
+		fieldKnowledgeBaseID: {Val: embedding.KnowledgeBaseID},
+		fieldTagID:           {Val: embedding.TagID},
+		fieldIsEnabled:       {Val: boolToUint64(embedding.IsEnabled)},
+	}
+	for key, value := range embedding.ScalarMetadata {
+		fields[types.MetadataPayloadFieldName(key)] = tcvectordb.Field{Val: value}
+	}
 	return tcvectordb.Document{
 		Id:           embedding.ID,
 		Vector:       embedding.Embedding,
 		SparseVector: embedding.SparseVector,
-		Fields: map[string]tcvectordb.Field{
-			fieldContent:         {Val: embedding.Content},
-			fieldSourceID:        {Val: embedding.SourceID},
-			fieldSourceType:      {Val: uint64(embedding.SourceType)},
-			fieldChunkID:         {Val: embedding.ChunkID},
-			fieldKnowledgeID:     {Val: embedding.KnowledgeID},
-			fieldKnowledgeBaseID: {Val: embedding.KnowledgeBaseID},
-			fieldTagID:           {Val: embedding.TagID},
-			fieldIsEnabled:       {Val: boolToUint64(embedding.IsEnabled)},
-		},
+		Fields:       fields,
 	}
 }
 

@@ -378,6 +378,26 @@ func TestRetrieveFilters_AppliesExcludeKnowledgeIDs(t *testing.T) {
 	}
 }
 
+func TestRetrieveFilters_AppliesMetadataFilters(t *testing.T) {
+	t.Parallel()
+	f := &retrieveFilters{
+		MetadataFilters: types.MetadataFilters{
+			Must: []types.MetadataFilter{{
+				Field: "goods_id",
+				Op:    types.MetadataFilterOpEq,
+				Value: "1001",
+			}},
+		},
+	}
+	body, err := buildKNNQuery([]float32{0.1}, 5, 0, f)
+	if err != nil {
+		t.Fatalf("buildKNNQuery: %v", err)
+	}
+	if !strings.Contains(string(body), `"metadata__goods_id"`) {
+		t.Errorf("metadata filter missing from query body: %s", body)
+	}
+}
+
 func TestRetrieveFilters_IncludeDisabled_SkipsIsEnabledClause(t *testing.T) {
 	t.Parallel()
 	f := &retrieveFilters{IncludeDisabled: true}

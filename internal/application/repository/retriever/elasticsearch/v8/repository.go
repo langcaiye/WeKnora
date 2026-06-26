@@ -319,6 +319,9 @@ func (e *elasticsearchRepository) getBaseConds(params typesLocal.RetrieveParams)
 			},
 		}})
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		must = append(must, es8MetadataTermsQuery(filter))
+	}
 
 	mustNot := make([]types.Query, 0)
 	// Exclude disabled chunks (is_enabled = false)
@@ -336,7 +339,18 @@ func (e *elasticsearchRepository) getBaseConds(params typesLocal.RetrieveParams)
 			TermsQuery: map[string]types.TermsQueryField{e.idField("chunk_id"): params.ExcludeChunkIDs},
 		}})
 	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		mustNot = append(mustNot, es8MetadataTermsQuery(filter))
+	}
 	return []types.Query{{Bool: &types.BoolQuery{Must: must, MustNot: mustNot}}}
+}
+
+func es8MetadataTermsQuery(filter typesLocal.MetadataFilter) types.Query {
+	return types.Query{Terms: &types.TermsQuery{
+		TermsQuery: map[string]types.TermsQueryField{
+			filter.FieldPath(): filter.MatchValues(),
+		},
+	}}
 }
 
 // createIndexIfNotExists checks if the specified index exists and creates it if not

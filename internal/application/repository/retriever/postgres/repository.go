@@ -160,6 +160,38 @@ func (g *pgRepository) Retrieve(ctx context.Context, params types.RetrieveParams
 	return nil, err
 }
 
+func addPostgresMetadataFilter(
+	whereParts *[]string,
+	allVars *[]interface{},
+	filter types.MetadataFilter,
+	negated bool,
+) {
+	fieldParam := len(*allVars) + 1
+	*allVars = append(*allVars, filter.Field)
+	valuePlaceholders := make([]string, len(filter.MatchValues()))
+	for i, value := range filter.MatchValues() {
+		valuePlaceholders[i] = fmt.Sprintf("$%d", len(*allVars)+1)
+		*allVars = append(*allVars, value)
+	}
+	operator := "IN"
+	if negated {
+		operator = "NOT IN"
+		*whereParts = append(*whereParts, fmt.Sprintf(
+			"COALESCE(metadata ->> $%d, '') %s (%s)",
+			fieldParam,
+			operator,
+			strings.Join(valuePlaceholders, ", "),
+		))
+		return
+	}
+	*whereParts = append(*whereParts, fmt.Sprintf(
+		"metadata ->> $%d %s (%s)",
+		fieldParam,
+		operator,
+		strings.Join(valuePlaceholders, ", "),
+	))
+}
+
 // KeywordsRetrieve performs keyword-based search using PostgreSQL full-text search
 func (g *pgRepository) KeywordsRetrieve(ctx context.Context,
 	params types.RetrieveParams,
@@ -193,6 +225,18 @@ func (g *pgRepository) KeywordsRetrieve(ctx context.Context,
 			Values: common.ToInterfaceSlice(params.TagIDs),
 		})
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		conds = append(conds, clause.Expr{
+			SQL:  "metadata ->> ? IN ?",
+			Vars: []interface{}{filter.Field, filter.MatchValues()},
+		})
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		conds = append(conds, clause.Expr{
+			SQL:  "COALESCE(metadata ->> ?, '') NOT IN ?",
+			Vars: []interface{}{filter.Field, filter.MatchValues()},
+		})
+	}
 
 	// Use ParadeDB's ||| operator for matching any token
 	conds = append(conds, clause.Expr{
@@ -221,6 +265,7 @@ func (g *pgRepository) KeywordsRetrieve(ctx context.Context,
 			"knowledge_id",
 			"knowledge_base_id",
 			"tag_id",
+			"metadata",
 		}).
 		Limit(int(params.TopK)).
 		Find(&embeddingDBList).Error
@@ -329,6 +374,12 @@ func (g *pgRepository) VectorRetrieve(ctx context.Context,
 		whereParts = append(whereParts, fmt.Sprintf("tag_id IN (%s)",
 			strings.Join(placeholders, ", ")))
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		addPostgresMetadataFilter(&whereParts, &allVars, filter, false)
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		addPostgresMetadataFilter(&whereParts, &allVars, filter, true)
+	}
 
 	// is_enabled filter
 	whereParts = append(whereParts, fmt.Sprintf("(is_enabled IS NULL OR is_enabled = $%d)", len(allVars)+1))
@@ -376,11 +427,11 @@ func (g *pgRepository) VectorRetrieve(ctx context.Context,
 
 	querySQL := fmt.Sprintf(`
 		SELECT 
-			id, content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id,
+			id, content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id, metadata,
 			(1 - distance) as score
 		FROM (
 			SELECT 
-				id, content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id,
+				id, content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id, metadata,
 				embedding::halfvec(%[1]d) <=> $1::halfvec(%[1]d) as distance
 			FROM embeddings
 			%[2]s

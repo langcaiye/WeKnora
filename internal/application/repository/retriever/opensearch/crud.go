@@ -241,6 +241,9 @@ func toDoc(info *types.IndexInfo, emb []float32, enabled bool) map[string]any {
 		"is_enabled":        enabled,
 		"is_recommended":    info.IsRecommended,
 	}
+	for key, value := range info.ScalarMetadata {
+		doc[types.MetadataPayloadFieldName(key)] = value
+	}
 	if len(emb) > 0 {
 		doc["embedding"] = emb
 	}

@@ -507,6 +507,12 @@ func (q *qdrantRepository) getBaseFilter(params types.RetrieveParams) *qdrant.Fi
 	if len(params.TagIDs) > 0 {
 		must = append(must, qdrant.NewMatchKeywords(fieldTagID, params.TagIDs...))
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		must = append(must, qdrant.NewMatchKeywords(types.MetadataPayloadFieldName(filter.Field), filter.MatchValues()...))
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		mustNot = append(mustNot, qdrant.NewMatchKeywords(types.MetadataPayloadFieldName(filter.Field), filter.MatchValues()...))
+	}
 
 	if len(params.ExcludeKnowledgeIDs) > 0 {
 		mustNot = append(mustNot, qdrant.NewMatchKeywords(fieldKnowledgeID, params.ExcludeKnowledgeIDs...))
@@ -879,6 +885,9 @@ func createPayload(embedding *QdrantVectorEmbedding) map[string]*qdrant.Value {
 		fieldTagID:           embedding.TagID,
 		fieldIsEnabled:       embedding.IsEnabled,
 	}
+	for key, value := range embedding.ScalarMetadata {
+		payload[types.MetadataPayloadFieldName(key)] = value
+	}
 	return qdrant.NewValueMap(payload)
 }
 
@@ -937,6 +946,7 @@ func toQdrantVectorEmbedding(embedding *types.IndexInfo, additionalParams map[st
 		KnowledgeBaseID: embedding.KnowledgeBaseID,
 		TagID:           embedding.TagID,
 		IsEnabled:       embedding.IsEnabled,
+		ScalarMetadata:  embedding.ScalarMetadata,
 	}
 	if additionalParams != nil {
 		if val, exists := additionalParams[fieldEmbedding]; exists {

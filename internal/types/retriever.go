@@ -48,6 +48,8 @@ type RetrieveParams struct {
 	KnowledgeIDs []string
 	// Tag IDs for filtering (used for FAQ priority filtering)
 	TagIDs []string
+	// Metadata filters for chunk-level business fields
+	MetadataFilters MetadataFilters
 	// Excluded knowledge IDs
 	ExcludeKnowledgeIDs []string
 	// Excluded chunk IDs

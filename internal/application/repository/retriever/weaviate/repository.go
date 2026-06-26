@@ -19,6 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+const metadataPropertyPrefix = "metadata__"
+
 const (
 	envWeaviateCollection = "WEAVIATE_COLLECTION"
 	defaultCollectionName = "Weknora_embeddings"
@@ -201,6 +203,9 @@ func (w *weaviateRepository) Save(ctx context.Context,
 		return err
 	}
 	collectionName := w.getCollectionName(dimension)
+	if err := w.ensureMetadataProperties(ctx, collectionName, []*WeaviateVectorEmbedding{embeddingDB}); err != nil {
+		return err
+	}
 	dataSchema := createPayload(embeddingDB)
 
 	id := embedding.ChunkID
@@ -260,8 +265,15 @@ func (w *weaviateRepository) BatchSave(ctx context.Context,
 			return err
 		}
 		collectionName := w.getCollectionName(dimension)
+		embeddingDBs := make([]*WeaviateVectorEmbedding, 0, len(embeddings))
 		for _, embedding := range embeddings {
 			embeddingDB := toWeaviateVectorEmbedding(embedding, additionalParams)
+			embeddingDBs = append(embeddingDBs, embeddingDB)
+		}
+		if err := w.ensureMetadataProperties(ctx, collectionName, embeddingDBs); err != nil {
+			return err
+		}
+		for _, embeddingDB := range embeddingDBs {
 			dataSchema := createPayload(embeddingDB)
 
 			obj := &models.Object{
@@ -500,6 +512,12 @@ func (w *weaviateRepository) getBaseFilter(params types.RetrieveParams) *filters
 			WithOperator(filters.ContainsAny).
 			WithValueText(params.TagIDs...))
 	}
+	for _, filter := range params.MetadataFilters.IncludeFilters() {
+		operands = append(operands, filters.Where().
+			WithPath([]string{weaviateMetadataProperty(filter.Field)}).
+			WithOperator(filters.ContainsAny).
+			WithValueText(filter.MatchValues()...))
+	}
 	if len(params.ExcludeKnowledgeIDs) > 0 {
 		operands = append(operands, filters.Where().
 			WithPath([]string{fieldKnowledgeID}).
@@ -511,6 +529,12 @@ func (w *weaviateRepository) getBaseFilter(params types.RetrieveParams) *filters
 			WithPath([]string{fieldChunkID}).
 			WithOperator(filters.NotEqual).
 			WithValueText(params.ExcludeChunkIDs...))
+	}
+	for _, filter := range params.MetadataFilters.ExcludeFilters() {
+		operands = append(operands, filters.Where().
+			WithPath([]string{weaviateMetadataProperty(filter.Field)}).
+			WithOperator(filters.NotEqual).
+			WithValueText(filter.MatchValues()...))
 	}
 
 	return filters.Where().
@@ -839,7 +863,58 @@ func createPayload(embedding *WeaviateVectorEmbedding) map[string]interface{} {
 		fieldTagID:           embedding.TagID,
 		fieldIsEnabled:       embedding.IsEnabled,
 	}
+	for key, value := range embedding.ScalarMetadata {
+		payload[weaviateMetadataProperty(key)] = value
+	}
 	return payload
+}
+
+func weaviateMetadataProperty(field string) string {
+	return types.MetadataPayloadFieldName(field)
+}
+
+func (w *weaviateRepository) ensureMetadataProperties(
+	ctx context.Context,
+	collectionName string,
+	embeddings []*WeaviateVectorEmbedding,
+) error {
+	keys := make(map[string]struct{})
+	for _, embedding := range embeddings {
+		for key := range embedding.ScalarMetadata {
+			keys[weaviateMetadataProperty(key)] = struct{}{}
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+
+	schema, err := w.client.Schema().ClassGetter().WithClassName(collectionName).Do(ctx)
+	if err != nil {
+		return fmt.Errorf("weaviate get schema for metadata properties: %w", err)
+	}
+	existing := make(map[string]struct{}, len(schema.Properties))
+	for _, prop := range schema.Properties {
+		existing[prop.Name] = struct{}{}
+	}
+	enabled := true
+	for key := range keys {
+		if _, ok := existing[key]; ok {
+			continue
+		}
+		err := w.client.Schema().PropertyCreator().
+			WithClassName(collectionName).
+			WithProperty(&models.Property{
+				Name:            key,
+				DataType:        []string{"text"},
+				Tokenization:    "field",
+				IndexFilterable: &enabled,
+			}).
+			Do(ctx)
+		if err != nil {
+			return fmt.Errorf("weaviate create metadata property %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func buildRetrieveResult(results []*types.IndexWithScore, retrieverType types.RetrieverType) []*types.RetrieveResult {
@@ -1008,6 +1083,7 @@ func toWeaviateVectorEmbedding(embedding *types.IndexInfo, additionalParams map[
 		KnowledgeBaseID: embedding.KnowledgeBaseID,
 		TagID:           embedding.TagID,
 		IsEnabled:       embedding.IsEnabled,
+		ScalarMetadata:  embedding.ScalarMetadata,
 	}
 	if additionalParams != nil && slices.Contains(slices.Collect(maps.Keys(additionalParams)), fieldEmbedding) {
 		if embeddingMap, ok := additionalParams[fieldEmbedding].(map[string][]float32); ok {

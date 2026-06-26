@@ -31,6 +31,7 @@ BEGIN
         knowledge_id VARCHAR(64),
         knowledge_base_id VARCHAR(64),
         content TEXT,
+        metadata JSONB,
         dimension INTEGER NOT NULL,
         embedding halfvec
     );

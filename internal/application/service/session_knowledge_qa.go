@@ -111,6 +111,7 @@ func (s *sessionService) KnowledgeQA(
 			MaxRounds:               s.cfg.Conversation.MaxRounds,
 			KnowledgeBaseIDs:        knowledgeBaseIDs,
 			KnowledgeIDs:            knowledgeIDs,
+			MetadataFilters:         req.MetadataFilters,
 			SearchTargets:           searchTargets,
 			VectorThreshold:         s.cfg.Conversation.VectorThreshold,
 			KeywordThreshold:        s.cfg.Conversation.KeywordThreshold,
@@ -660,7 +661,7 @@ func (s *sessionService) KnowledgeQAByEvent(ctx context.Context,
 // knowledgeBaseIDs: list of knowledge base IDs to search (supports multi-KB)
 // knowledgeIDs: list of specific knowledge (file) IDs to search
 func (s *sessionService) SearchKnowledge(ctx context.Context,
-	knowledgeBaseIDs []string, knowledgeIDs []string, query string,
+	knowledgeBaseIDs []string, knowledgeIDs []string, query string, metadataFilters types.MetadataFilters,
 ) ([]*types.SearchResult, error) {
 	logger.Info(ctx, "Start knowledge base search without LLM summary")
 	logger.Infof(ctx, "Knowledge base search parameters, knowledge base IDs: %v, knowledge IDs: %v, query: %s",
@@ -699,6 +700,7 @@ func (s *sessionService) SearchKnowledge(ctx context.Context,
 			UserID:           userID,
 			KnowledgeBaseIDs: knowledgeBaseIDs,
 			KnowledgeIDs:     knowledgeIDs,
+			MetadataFilters:  metadataFilters,
 			SearchTargets:    searchTargets,
 			MaxRounds:        s.cfg.Conversation.MaxRounds,
 			EmbeddingTopK:    rc.GetEffectiveEmbeddingTopK(),
